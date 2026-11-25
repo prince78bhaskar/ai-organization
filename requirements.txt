@@ -1,0 +1,5 @@
+ollama
+chromadb
+pymupdf
+ddgs
+trafilatura
