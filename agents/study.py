@@ -13,6 +13,6 @@ Rules:
 - Jo nahi pata, uska andaza mat lagao; saaf batao."""
 
 
-def run(task: str, context: str = "") -> str:
+def run(task: str, context: str = "", history=None) -> str:
     user = task if not context else f"Context (doosre agent se):\n{context}\n\nTask:\n{task}"
-    return chat(STUDY_MODEL, SYSTEM, user, temperature=0.4)
+    return chat(STUDY_MODEL, SYSTEM, user, temperature=0.4, history=history)

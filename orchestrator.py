@@ -42,10 +42,13 @@ def _fallback(task: str):
     return [best if scores[best] > 0 else "study"]
 
 
-def route(task: str):
+def route(task: str, history=None):
     """Returns (agents_list, plan_text)."""
     try:
-        raw = chat(ORCHESTRATOR_MODEL, ROUTER_SYSTEM, task, as_json=True, temperature=0.0)
+        raw = chat(
+            ORCHESTRATOR_MODEL, ROUTER_SYSTEM, task, as_json=True, temperature=0.0,
+            history=history,
+        )
         data = json.loads(raw)
         agents = [a for a in data.get("agents", []) if a in AGENTS][:3]
         plan = str(data.get("plan", ""))
@@ -56,12 +59,13 @@ def route(task: str):
     return _fallback(task), "(router fail hua, keyword se agent chuna)"
 
 
-def handle(task: str, on_step=None):
+def handle(task: str, on_step=None, history=None):
     """Poora task chalao. on_step(msg) se progress dikha sakte ho.
     Returns (final_answer, steps) jahan steps = [(agent, output), ...]"""
     say = on_step or (lambda m: None)
 
-    agents, plan = route(task)
+    history = (history or [])[-10:]
+    agents, plan = route(task, history=history)
     say(f"Plan: {plan}")
     say(f"Agents: {' -> '.join(agents)}")
 
@@ -69,7 +73,7 @@ def handle(task: str, on_step=None):
     for name in agents:
         say(f"[{name}] kaam kar raha hai...")
         try:
-            out = AGENTS[name](task, context)
+            out = AGENTS[name](task, context, history=history)
         except Exception as e:
             out = f"{name} agent mein error: {e}"
         steps.append((name, out))

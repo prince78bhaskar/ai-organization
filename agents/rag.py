@@ -70,7 +70,7 @@ def has_documents() -> bool:
         return False
 
 
-def run(task: str, context: str = "") -> str:
+def run(task: str, context: str = "", history=None) -> str:
     col = _collection()
     if col.count() == 0:
         return "Abhi koi document ingest nahi hua. Pehle `/ingest <file ya folder path>` chalao."
@@ -84,4 +84,13 @@ def run(task: str, context: str = "") -> str:
     user = "Document excerpts:\n\n" + "\n\n".join(excerpts) + f"\n\nQuestion: {task}"
     if context:
         user = f"Extra context:\n{context}\n\n" + user
-    return chat(STUDY_MODEL, SYSTEM, user, temperature=0.1)
+    return chat(STUDY_MODEL, SYSTEM, user, temperature=0.1, history=history)
+
+
+def list_documents():
+    """Return unique ingested source file names."""
+    col = _collection()
+    if col.count() == 0:
+        return []
+    records = col.get(include=["metadatas"], limit=col.count())
+    return sorted({metadata["file"] for metadata in records["metadatas"] if metadata})

@@ -9,12 +9,14 @@ Commands:
 import os
 
 from agents import rag
+from memory.history import append_exchange, clear_history, load_history, save_history
 from orchestrator import handle
 
 
 def main():
     show_steps = False
-    print("=== AI Organization === (task likho, ya /ingest <path>, /steps, /quit)\n")
+    history = load_history()
+    print("=== AI Organization === (task likho, ya /ingest <path>, /steps, /clear, /quit)\n")
     while True:
         try:
             task = input("Tum: ").strip().strip('"')
@@ -25,6 +27,11 @@ def main():
             continue
         if task == "/quit":
             break
+        if task == "/clear":
+            clear_history()
+            history = []
+            print("Conversation history clear ho gayi.\n")
+            continue
         if task == "/steps":
             show_steps = not show_steps
             print(f"Steps dikhana: {'ON' if show_steps else 'OFF'}\n")
@@ -41,7 +48,9 @@ def main():
             continue
 
         try:
-            answer, steps = handle(task, on_step=lambda m: print(f"  · {m}"))
+            answer, steps = handle(
+                task, on_step=lambda m: print(f"  · {m}"), history=history
+            )
         except Exception as e:
             print(f"Error: {e}\n(Ollama chal raha hai? `ollama list` check karo)\n")
             continue
@@ -50,6 +59,8 @@ def main():
             for name, out in steps[:-1]:
                 print(f"\n--- {name} ka output ---\n{out}")
         print(f"\nAI Organization:\n{answer}\n")
+        history = append_exchange(history, task, answer)
+        save_history(history)
 
 
 if __name__ == "__main__":

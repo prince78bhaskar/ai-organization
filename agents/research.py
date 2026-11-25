@@ -14,13 +14,23 @@ Rules:
 - If sources disagree or are weak, say so. Never invent facts or links."""
 
 
-def run(task: str, context: str = "") -> str:
-    query = chat(RESEARCH_MODEL, QUERY_SYSTEM, task, temperature=0.0).strip().strip('"')
-    try:
-        results = search(query, max_results=5)
-    except Exception as e:
-        return f"Web search fail hui: {e}"
+def run(task: str, context: str = "", history=None) -> str:
+    query = chat(
+        RESEARCH_MODEL, QUERY_SYSTEM, task, temperature=0.0, history=history
+    ).strip().strip('"')
+    queries = list(dict.fromkeys(q for q in (query, task) if q))
+    errors = []
+    results = []
+    for candidate in queries:
+        try:
+            results = search(candidate, max_results=5)
+        except Exception as e:
+            errors.append(f"{candidate!r}: {e}")
+        if results:
+            break
     if not results:
+        if errors:
+            return "Web search fail hui: " + "; ".join(errors)
         return "Search mein koi result nahi mila."
 
     blocks = []
@@ -32,7 +42,7 @@ def run(task: str, context: str = "") -> str:
     user = f"Request: {task}\n\nSources:\n{sources_text}"
     if context:
         user = f"Extra context:\n{context}\n\n" + user
-    report = chat(RESEARCH_MODEL, SYSTEM, user, temperature=0.2)
+    report = chat(RESEARCH_MODEL, SYSTEM, user, temperature=0.2, history=history)
 
     links = "\n".join(f"[{i}] {r['url']}" for i, r in enumerate(results[:4], start=1))
     return f"{report}\n\n**Links:**\n{links}"
