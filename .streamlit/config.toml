@@ -1,0 +1,25 @@
+[theme]
+font = "sans-serif"
+headingFont = "sans-serif"
+codeFont = "monospace"
+baseFontSize = 15
+baseRadius = "0.75rem"
+buttonRadius = "0.75rem"
+showWidgetBorder = true
+showSidebarBorder = true
+paddingTop = "1.25rem"
+paddingBottom = "2rem"
+
+[theme.light]
+primaryColor = "#5267D8"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F6FA"
+textColor = "#1F2430"
+borderColor = "#E4E7EF"
+
+[theme.dark]
+primaryColor = "#98A8FF"
+backgroundColor = "#111318"
+secondaryBackgroundColor = "#1B1E26"
+textColor = "#E8EAF0"
+borderColor = "#303541"
