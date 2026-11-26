@@ -1,0 +1,59 @@
+# AI Organization
+
+AI Organization is a local-first, multi-agent AI workspace built around Ollama. It provides coding, research, study, and document-grounded RAG departments through a Next.js interface, a FastAPI backend, and terminal or Streamlit interfaces.
+
+## Documentation
+
+- Full project report: [PROJECT_REPORT.md](./PROJECT_REPORT.md)
+- Mermaid source diagrams: [docs/diagrams/](./docs/diagrams/)
+- Screenshots and exports: [docs/images/](./docs/images/)
+- Previous README backup: [README.old.md](./README.old.md)
+
+## Quick Start
+
+Requirements: Python 3.11+, Node.js, npm, and Ollama.
+
+```powershell
+cd "D:\claude\ai-organization\ai-organization"
+.\venv\Scripts\Activate.ps1
+ollama list
+.\start.ps1
+```
+
+The web application is normally available at `http://localhost:3000`, and the API at `http://127.0.0.1:8000`.
+
+For manual startup:
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+
+cd frontend
+npm.cmd run dev
+```
+
+## Available Interfaces
+
+| Interface | Entry point | Status |
+|---|---|---|
+| Next.js web UI | `frontend/app/page.tsx` | Implemented |
+| FastAPI backend | `backend/main.py` | Implemented |
+| Streamlit UI | `ui/app.py` | Implemented |
+| Terminal UI | `main.py` | Implemented |
+
+## Verified Models
+
+| Role | Model |
+|---|---|
+| Orchestrator, Study, Research, RAG answer | `qwen3.5:2b` |
+| Coding | `qwen2.5-coder:3b` |
+| Scanned image/handwritten OCR | `qwen3-vl:2b` |
+| RAG embeddings | `bge-m3` |
+
+## Verification Snapshot
+
+- Python unit tests: 3 tests passed for Streamlit chat persistence.
+- Next.js production build: passed.
+- Ollama: reachable; all configured models were present.
+- API health: `status=ok`, `ollama_connected=true`, `docs_count=3` at verification time.
+- Frontend runtime: verified on `http://localhost:3000` after restarting the Next.js dev server.
