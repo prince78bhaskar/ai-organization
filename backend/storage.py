@@ -79,6 +79,7 @@ def _normalize_legacy_chat(source):
                 "content": content,
                 "agents_used": item.get("agents_used", []),
                 "steps": item.get("steps", []),
+                "sources": item.get("sources", []),
                 "events": item.get("events", []),
                 "timestamp": item.get("timestamp", created_at),
             }
@@ -187,6 +188,7 @@ def append_message(chat_id, message):
                 "content": message["content"],
                 "agents_used": message.get("agents_used", []),
                 "steps": message.get("steps", []),
+                "sources": message.get("sources", []),
                 "events": message.get("events", []),
                 "timestamp": timestamp,
             }

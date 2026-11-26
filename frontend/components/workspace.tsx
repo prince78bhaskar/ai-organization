@@ -13,10 +13,10 @@ import {
   BookOpen,
   Check,
   ChevronDown,
-  ChevronRight,
   CircleHelp,
   Code2,
   Copy,
+  FileImage,
   FileText,
   FolderOpen,
   Globe2,
@@ -36,6 +36,7 @@ import {
   Pencil,
   PanelLeftClose,
 } from "lucide-react";
+import Image from "next/image";
 import {
   type ChangeEvent,
   type DragEvent,
@@ -54,7 +55,11 @@ import {
   type Chat,
   type ChatMessage,
   type ChatSummary,
+  type DocumentDetail,
+  type DocumentSummary,
   type Health,
+  type SourceEvidence,
+  documentDownloadUrl,
   streamMessage,
   uploadDocument,
 } from "@/lib/api";
@@ -97,9 +102,15 @@ const SUGGESTIONS = [
   "Compare local and cloud AI models",
   "Help me plan a focused study session",
 ];
+const QUERY_STOP_WORDS = new Set("a an and are as at be by does for from in is it of on or that the this to was were what when where which who with".split(" "));
 
 type Toast = { title: string; detail?: string; kind: "success" | "error" };
 type ConfirmState = { kind: "chat"; chat: ChatSummary } | { kind: "all" } | null;
+type TextSize = "small" | "medium" | "large" | "extra-large";
+
+function isTextSize(value: string): value is TextSize {
+  return value === "small" || value === "medium" || value === "large" || value === "extra-large";
+}
 
 function greeting() {
   const hour = new Date().getHours();
@@ -131,19 +142,61 @@ function makeMessage(role: ChatMessage["role"], content: string, extra: Partial<
   return { role, content, timestamp: new Date().toISOString(), ...extra };
 }
 
+function displayDocumentName(file: string) {
+  return file.replace(/^[0-9a-f]{32}_/i, "");
+}
+
+function highlightExcerpt(text: string, question: string) {
+  const keywords = [...new Set((question.match(/[\p{L}\p{N}]{3,}/gu) || [])
+    .filter((word) => !QUERY_STOP_WORDS.has(word.toLocaleLowerCase())))]
+    .sort((left, right) => right.length - left.length);
+  if (!keywords.length) return text;
+  const matcher = new RegExp(`(${keywords.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  return text.split(matcher).map((part, index) =>
+    keywords.some((word) => word.toLocaleLowerCase() === part.toLocaleLowerCase())
+      ? <mark className="source-highlight" key={`${index}-${part}`}>{part}</mark>
+      : part,
+  );
+}
+
+function formatSourcePage(page: string) {
+  const match = /^page\s*(\d+)$/i.exec(page);
+  return match ? `Page ${match[1]}` : page;
+}
+
+function getInitialTextSize(): TextSize {
+  if (typeof window === "undefined") return "medium";
+
+  try {
+    const stored = window.localStorage.getItem("ai-org-text-size");
+    if (stored && isTextSize(stored)) return stored;
+  } catch (error) {
+    console.warn("Could not read the saved text size preference.", error);
+  }
+
+  return "medium";
+}
+
 export function Workspace() {
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [chat, setChat] = useState<Chat | null>(null);
   const [agents, setAgents] = useState<Agent[]>(FALLBACK_AGENTS);
   const [health, setHealth] = useState<Health | null>(null);
-  const [documents, setDocuments] = useState<string[]>([]);
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeAgent, setActiveAgent] = useState("");
   const [toast, setToast] = useState<Toast | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [textSize, setTextSize] = useState<TextSize>(getInitialTextSize);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [documentsOpen, setDocumentsOpen] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState<DocumentDetail | null>(null);
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [documentError, setDocumentError] = useState("");
+  const [documentSearch, setDocumentSearch] = useState("");
+  const [selectedPage, setSelectedPage] = useState<string | null>(null);
+  const [expandedSource, setExpandedSource] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -167,7 +220,7 @@ export function Workspace() {
   }, []);
 
   const refreshDocuments = useCallback(async () => {
-    const result = await api<string[]>("/api/documents");
+    const result = await api<DocumentSummary[]>("/api/documents");
     setDocuments(result);
   }, []);
 
@@ -232,6 +285,15 @@ export function Workspace() {
   }, [theme]);
 
   useEffect(() => {
+    document.documentElement.dataset.textSize = textSize;
+    try {
+      window.localStorage.setItem("ai-org-text-size", textSize);
+    } catch (error) {
+      console.warn("Could not save the text size preference.", error);
+    }
+  }, [textSize]);
+
+  useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 4200);
     return () => window.clearTimeout(timer);
@@ -248,6 +310,7 @@ export function Workspace() {
         composerRef.current?.focus();
       }
       if (event.key === "Escape" && sidebarOpen) setSidebarOpen(false);
+      if (event.key === "Escape" && documentsOpen) setDocumentsOpen(false);
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
@@ -337,12 +400,29 @@ export function Workspace() {
             return { ...previous, messages };
           });
         }
+        if (name === "sources") {
+          const sources = Array.isArray(data.sources) ? data.sources as SourceEvidence[] : [];
+          setChat((previous) => {
+            if (!previous) return previous;
+            const messages = [...previous.messages];
+            const last = messages[messages.length - 1];
+            if (last?.pending) {
+              messages[messages.length - 1] = {
+                ...last,
+                agents_used: [...new Set([...(last.agents_used || []), "rag"])],
+                sources,
+              };
+            }
+            return { ...previous, messages };
+          });
+        }
         if (name === "final") {
           const finalMessage: ChatMessage = {
             role: "assistant",
             content: String(data.answer || ""),
             agents_used: Array.isArray(data.agents_used) ? data.agents_used.map(String) : [],
             steps: Array.isArray(data.steps) ? data.steps as ChatMessage["steps"] : [],
+            sources: Array.isArray(data.sources) ? data.sources as SourceEvidence[] : undefined,
             timestamp: new Date().toISOString(),
           };
           setChat((previous) => {
@@ -360,6 +440,9 @@ export function Workspace() {
             return { ...previous, messages };
           });
           showToast({ title: "Something went wrong", detail: String(data.message || ""), kind: "error" });
+        }
+        if (name === "sources_error") {
+          showToast({ title: "Evidence unavailable", detail: String(data.message || ""), kind: "error" });
         }
       });
       const fresh = await api<Chat>(`/api/chats/${activeChat.id}`);
@@ -465,6 +548,34 @@ export function Workspace() {
     }
   }
 
+  async function openDocument(file: string, page?: string) {
+    setDocumentsOpen(true);
+    setSelectedDocument(null);
+    setDocumentLoading(true);
+    setDocumentError("");
+    setDocumentSearch("");
+    setSelectedPage(page || null);
+    try {
+      setSelectedDocument(await api<DocumentDetail>(`/api/documents/${encodeURIComponent(file)}`));
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : "Couldn't load this document.");
+    } finally {
+      setDocumentLoading(false);
+    }
+  }
+
+  async function deleteDocument(document: DocumentSummary) {
+    if (!window.confirm(`Permanently delete "${document.name}" and its extracted text?`)) return;
+    try {
+      await api<void>(`/api/documents/${encodeURIComponent(document.file)}`, { method: "DELETE" });
+      if (selectedDocument?.file === document.file) setSelectedDocument(null);
+      await Promise.all([refreshDocuments(), refreshHealth()]);
+      showToast({ title: "Document deleted", detail: document.name, kind: "success" });
+    } catch (error) {
+      showToast({ title: "Couldn't delete document", detail: error instanceof Error ? error.message : undefined, kind: "error" });
+    }
+  }
+
   function onDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDragging(false);
@@ -478,6 +589,8 @@ export function Workspace() {
   const showHome = !chat?.messages.length;
   const lastUserMessage = chat?.messages.filter((message) => message.role === "user").at(-1)?.content;
   const currentAssistantIndex = chat?.messages.findIndex((message) => message.pending) ?? -1;
+  const selectedDocumentIsPdf = selectedDocument?.name.toLowerCase().endsWith(".pdf") || false;
+  const selectedDocumentIsImage = /\.(png|jpe?g|webp|bmp)$/i.test(selectedDocument?.name || "");
 
   return (
     <MotionConfig reducedMotion="user">
@@ -583,35 +696,16 @@ export function Workspace() {
           <div className="sidebar-lower">
             <button
               className={`sidebar-link ${documentsOpen ? "sidebar-link-active" : ""}`}
-              onClick={() => setDocumentsOpen((open) => !open)}
-              aria-expanded={documentsOpen}
+              onClick={() => {
+                setSidebarOpen(false);
+                setDocumentsOpen(true);
+              }}
+              aria-haspopup="dialog"
             >
               <FolderOpen size={16} />
-              <span>Knowledge base</span>
+              <span>Documents</span>
               <span className="document-count">{documents.length}</span>
-              {documentsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
-            <AnimatePresence initial={false}>
-              {documentsOpen && (
-                <motion.div
-                  className="documents-list"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                >
-                  {documents.length ? documents.map((document) => (
-                    <div className="document-row" key={document} title={document}>
-                      <FileText size={14} /><span>{document}</span>
-                    </div>
-                  )) : (
-                    <div className="documents-empty">
-                      <span>No documents yet</span>
-                      <button onClick={() => fileInputRef.current?.click()}>Upload a file</button>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
             <button className="sidebar-link" onClick={() => setConfirm({ kind: "all" })} disabled={!chats.length}>
               <Trash2 size={16} />
               <span>Delete all chats</span>
@@ -633,14 +727,27 @@ export function Workspace() {
             </div>
             <div className="sidebar-footer">
               <div className="local-badge"><span /> Local · private · free</div>
-              <button
-                className="theme-toggle"
-                onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}
-                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-                title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-              >
-                {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-              </button>
+              <div className="sidebar-preferences">
+                <label className="text-size-control">
+                  <span>Text size</span>
+                  <select value={textSize} onChange={(event) => {
+                    if (isTextSize(event.target.value)) setTextSize(event.target.value);
+                  }}>
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                    <option value="extra-large">Extra large</option>
+                  </select>
+                </label>
+                <button
+                  className="theme-toggle"
+                  onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}
+                  aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+                  title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+                >
+                  {theme === "dark" ? <Sun size={20} strokeWidth={1.8} /> : <Moon size={20} strokeWidth={1.8} />}
+                </button>
+              </div>
             </div>
           </div>
         </aside>
@@ -796,6 +903,7 @@ export function Workspace() {
                     );
                   }
                   const stepKey = `${chat?.id}-${index}`;
+                  const question = chat?.messages.slice(0, index).filter((item) => item.role === "user").at(-1)?.content || "";
                   const pending = Boolean(message.pending);
                   return (
                     <motion.article className="assistant-message" key={`${message.timestamp}-${index}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
@@ -820,6 +928,42 @@ export function Workspace() {
                           </div>
                         ) : (
                           <MarkdownMessage content={message.content} />
+                        )}
+                        {message.agents_used?.includes("rag") && (
+                          <section className="sources-section" aria-label={`Sources (${message.sources?.length || 0})`}>
+                            <h3><FolderOpen size={14} /> Sources ({message.sources?.length || 0})</h3>
+                            {message.sources?.length ? <div className="source-list">
+                              {message.sources?.map((source) => {
+                                const sourceKey = `${stepKey}-${source.chunk_id}`;
+                                const expanded = expandedSource === sourceKey;
+                                const score = Math.max(0, Math.min(100, Math.round(source.score * 100)));
+                                return (
+                                  <article className={`source-card ${expanded ? "source-card-expanded" : ""}`} key={sourceKey}>
+                                    <button
+                                      className="source-card-trigger"
+                                      type="button"
+                                      aria-expanded={expanded}
+                                      onClick={() => setExpandedSource(expanded ? null : sourceKey)}
+                                    >
+                                      <FileText size={16} aria-hidden="true" />
+                                      <span className="source-file" title={displayDocumentName(source.file)}>{displayDocumentName(source.file)}</span>
+                                      <span className="source-page">{formatSourcePage(source.page)}</span>
+                                      <span className="source-score">{score}%</span>
+                                      <ChevronDown size={14} className={expanded ? "chevron-open" : ""} />
+                                    </button>
+                                    {expanded && (
+                                      <div className="source-card-detail">
+                                        <p>{highlightExcerpt(source.text, question)}</p>
+                                        <button className="source-open-page" type="button" onClick={() => void openDocument(source.file, source.page)}>
+                                          <BookOpen size={13} /> Open full page
+                                        </button>
+                                      </div>
+                                    )}
+                                  </article>
+                                );
+                              })}
+                            </div> : <p className="sources-empty">No document excerpts were retrieved.</p>}
+                          </section>
                         )}
                         {pending && Boolean(message.events?.length || message.steps?.length) && (
                           <div className="live-events">
@@ -905,6 +1049,140 @@ export function Workspace() {
         </main>
 
         <AnimatePresence>
+          {documentsOpen && (
+            <motion.div
+              className="documents-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onMouseDown={(event) => event.target === event.currentTarget && setDocumentsOpen(false)}
+            >
+              <motion.section
+                className={`documents-dialog ${selectedDocument ? "documents-dialog-detail" : ""}`}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="documents-title"
+                initial={{ opacity: 0, y: 12, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8 }}
+              >
+                <header className="documents-dialog-header">
+                  <div>
+                    <span className="section-overline">KNOWLEDGE BASE</span>
+                    <h2 id="documents-title">Documents</h2>
+                  </div>
+                  <button className="icon-button" aria-label="Close documents" onClick={() => setDocumentsOpen(false)}><X size={17} /></button>
+                </header>
+                <div className="documents-dialog-content">
+                  <section className="documents-table-panel" aria-label="Uploaded documents">
+                    <div className="documents-panel-heading">
+                      <span>{documents.length} {documents.length === 1 ? "document" : "documents"}</span>
+                      <button className="button-secondary" type="button" onClick={() => fileInputRef.current?.click()}><Upload size={13} /> Add files</button>
+                    </div>
+                    {documents.length ? (
+                      <div className="documents-table-scroll">
+                        <table className="documents-table">
+                          <thead><tr><th>File</th><th>Pages</th><th>Chunks</th><th>Uploaded</th><th><span className="visually-hidden">Actions</span></th></tr></thead>
+                          <tbody>
+                            {documents.map((document) => {
+                              const image = /\.(png|jpe?g|webp|bmp)$/i.test(document.name);
+                              return (
+                                <tr key={document.file}>
+                                  <td>
+                                    <button className="document-open" type="button" onClick={() => void openDocument(document.file)}>
+                                      {image ? <FileImage size={16} /> : <FileText size={16} />}
+                                      <span title={document.name}>{document.name}</span>
+                                    </button>
+                                  </td>
+                                  <td>{document.pages}</td>
+                                  <td>{document.chunks}</td>
+                                  <td>{document.uploaded_at ? new Date(document.uploaded_at).toLocaleDateString() : "—"}</td>
+                                  <td>
+                                    <button className="icon-button tiny danger-hover" type="button" aria-label={`Delete ${document.name}`} title={`Delete ${document.name}`} onClick={() => void deleteDocument(document)}>
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="documents-empty-state">
+                        <FolderOpen size={22} />
+                        <strong>No documents yet</strong>
+                        <span>Upload a PDF, image, text, or Markdown file to get started.</span>
+                      </div>
+                    )}
+                  </section>
+                  <section className="document-viewer" aria-label="Document preview and extracted text">
+                    {documentLoading ? (
+                      <div className="document-viewer-empty">Loading extracted text…</div>
+                    ) : documentError ? (
+                      <div className="document-viewer-empty document-viewer-error">{documentError}</div>
+                    ) : selectedDocument ? (
+                      <>
+                        <header className="document-viewer-header">
+                          <div>
+                            <strong title={selectedDocument.name}>{selectedDocument.name}</strong>
+                            <span>{selectedDocument.pages.length} {selectedDocument.pages.length === 1 ? "page" : "pages"} · OCR / extracted text</span>
+                          </div>
+                          <a className="button-secondary document-download" href={documentDownloadUrl(selectedDocument.file)} download={selectedDocument.name} aria-label={`Download ${selectedDocument.name}`}>
+                            <ArrowDownToLine size={14} /> Download
+                          </a>
+                        </header>
+                        <label className="document-search">
+                          <Search size={14} />
+                          <input value={documentSearch} onChange={(event) => setDocumentSearch(event.target.value)} placeholder="Search extracted text" aria-label="Search extracted text" />
+                        </label>
+                        {(selectedDocumentIsPdf || selectedDocumentIsImage) && (
+                          <div className="document-preview">
+                            {selectedDocumentIsPdf ? (
+                              <iframe title={`Preview of ${selectedDocument.name}`} src={documentDownloadUrl(selectedDocument.file)} />
+                            ) : (
+                              <Image
+                                src={documentDownloadUrl(selectedDocument.file)}
+                                alt={`Preview of ${selectedDocument.name}`}
+                                width={720}
+                                height={400}
+                                unoptimized
+                              />
+                            )}
+                          </div>
+                        )}
+                        <div className="extracted-pages">
+                          {selectedDocument.pages
+                            .filter((page) => !documentSearch || page.text.toLocaleLowerCase().includes(documentSearch.toLocaleLowerCase()))
+                            .map((page, pageIndex) => (
+                              <article
+                                className={`extracted-page ${selectedPage === page.page ? "extracted-page-selected" : ""}`}
+                                key={`${page.page}-${pageIndex}`}
+                                ref={(element) => {
+                                  if (element && selectedPage === page.page) element.scrollIntoView({ block: "nearest" });
+                                }}
+                              >
+                                <h3>{page.page}</h3>
+                                <pre>{highlightExcerpt(page.text, documentSearch)}</pre>
+                              </article>
+                            ))}
+                          {!selectedDocument.pages.length && <p className="document-viewer-empty">No extracted text was stored for this file.</p>}
+                          {selectedDocument.pages.length > 0 && !selectedDocument.pages.some((page) => !documentSearch || page.text.toLocaleLowerCase().includes(documentSearch.toLocaleLowerCase())) && (
+                            <p className="document-viewer-empty">No text matches your search.</p>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="document-viewer-empty"><FileText size={22} /><span>Select a document to view its extracted pages.</span></div>
+                    )}
+                  </section>
+                </div>
+              </motion.section>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
           {confirm && (
             <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => event.target === event.currentTarget && setConfirm(null)}>
               <motion.div className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8 }}>
@@ -976,6 +1254,9 @@ function Composer({
     >
       <form className="composer-box" onSubmit={onSubmit}>
         {isDragging && <div className="drop-overlay"><Upload size={19} /> Drop your file to add it to the knowledge base</div>}
+        <div className="searching-documents" aria-label="Searching in all documents">
+          <FolderOpen size={13} /><span>Searching in:</span><strong>All documents</strong>
+        </div>
         <textarea
           ref={composerRef}
           value={value}

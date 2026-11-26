@@ -22,8 +22,10 @@ from starlette.concurrency import run_in_threadpool
 
 if __package__:
     from . import storage
+    from . import sources
 else:
     import storage
+    import sources
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,7 +92,7 @@ def _ollama_status():
 
 def _documents():
     try:
-        return rag.list_documents()
+        return sources.list_documents(chroma_dir=rag.CHROMA_DIR, uploads_dir=UPLOADS_DIR)
     except Exception:
         logger.exception("Could not read the ingested document list.")
         raise HTTPException(
@@ -291,6 +293,19 @@ async def send_message(chat_id: str, payload: MessageRequest, request: Request):
             if not active_agents:
                 active_agents.extend(name for name, _ in steps)
             serial_steps = [{"agent": name, "output": output} for name, output in steps]
+            evidence = []
+            if "rag" in active_agents:
+                try:
+                    evidence = await run_in_threadpool(
+                        sources.retrieve_sources, prompt, rag.CHROMA_DIR
+                    )
+                except Exception:
+                    logger.exception("Could not retrieve evidence for chat %s.", chat_id)
+                    yield _sse(
+                        "sources_error",
+                        {"message": "The answer completed, but its document evidence could not be loaded."},
+                    )
+                yield _sse("sources", {"sources": evidence})
             for name, output in steps:
                 yield _sse("agent_output", {"agent": name, "output": output})
             storage.append_message(
@@ -300,11 +315,17 @@ async def send_message(chat_id: str, payload: MessageRequest, request: Request):
                     "content": answer,
                     "agents_used": active_agents,
                     "steps": serial_steps,
+                    "sources": evidence,
                 },
             )
             yield _sse(
                 "final",
-                {"answer": answer, "agents_used": active_agents, "steps": serial_steps},
+                {
+                    "answer": answer,
+                    "agents_used": active_agents,
+                    "steps": serial_steps,
+                    "sources": evidence,
+                },
             )
         finally:
             stopped.set()
@@ -378,6 +399,53 @@ async def upload(file: UploadFile = File(...)):
 @app.get("/api/documents")
 async def documents():
     return await run_in_threadpool(_documents)
+
+
+@app.get("/api/documents/{file}/download")
+async def download_document(file: str):
+    try:
+        source = sources.get_document(file, chroma_dir=rag.CHROMA_DIR)
+        if source is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+        path = (UPLOADS_DIR / file).resolve()
+        if os.path.commonpath([str(UPLOADS_DIR.resolve()), str(path)]) != str(
+            UPLOADS_DIR.resolve()
+        ):
+            raise HTTPException(status_code=400, detail="Invalid document path.")
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Original file is unavailable.")
+        from fastapi.responses import FileResponse
+
+        return FileResponse(
+            path, filename=source["name"], content_disposition_type="inline"
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document name.")
+
+
+@app.get("/api/documents/{file}")
+async def document(file: str):
+    try:
+        result = await run_in_threadpool(
+            sources.get_document, file, rag.CHROMA_DIR
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document name.")
+    if result is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return result
+
+
+@app.delete("/api/documents/{file}", status_code=204)
+async def remove_document(file: str):
+    try:
+        deleted = await run_in_threadpool(
+            sources.delete_document, file, rag.CHROMA_DIR, UPLOADS_DIR
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document name.")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found.")
 
 
 @app.exception_handler(Exception)

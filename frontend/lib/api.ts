@@ -10,9 +10,33 @@ export type ChatMessage = {
   content: string;
   agents_used?: string[];
   steps?: { agent: string; output: string }[];
+  sources?: SourceEvidence[];
   events?: string[];
   timestamp?: string;
   pending?: boolean;
+};
+
+export type SourceEvidence = {
+  file: string;
+  page: string;
+  text: string;
+  score: number;
+  chunk_id: string;
+};
+
+export type DocumentSummary = {
+  file: string;
+  name: string;
+  pages: number;
+  chunks: number;
+  uploaded_at: string | null;
+};
+
+export type DocumentDetail = {
+  file: string;
+  name: string;
+  pages: { page: string; text: string }[];
+  chunks: { page: string; text: string; chunk_id: string }[];
 };
 
 export type Chat = {
@@ -34,6 +58,10 @@ export type Health = {
 };
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+
+export function documentDownloadUrl(file: string) {
+  return `${API_URL}/api/documents/${encodeURIComponent(file)}/download`;
+}
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
