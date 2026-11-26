@@ -1,0 +1,22 @@
+flowchart TB
+    USER((User))
+    ORCH{Master Orchestrator}
+    C([Coding: write / debug / test])
+    R([Research: search / cite report])
+    S([Study: explain / quiz / notes])
+    G([RAG: ingest / retrieve / answer])
+    W((DuckDuckGo))
+    DB((ChromaDB))
+    OL((Ollama))
+
+    USER -->|Task + history| ORCH
+    ORCH --> C
+    ORCH --> R
+    ORCH --> S
+    ORCH --> G
+    C --> OL
+    R --> W
+    R --> OL
+    S --> OL
+    G --> DB
+    G --> OL

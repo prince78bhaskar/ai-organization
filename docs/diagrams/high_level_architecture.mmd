@@ -1,0 +1,21 @@
+flowchart LR
+    U[User] --> UI[Next.js UI]
+    UI --> API[FastAPI]
+    API --> O[Master Orchestrator]
+    O --> A1[Coding Agent]
+    O --> A2[Research Agent]
+    O --> A3[Study Agent]
+    O --> A4[RAG Agent]
+    A1 --> T4[Code Runner]
+    A2 --> T3[DuckDuckGo]
+    A3 --> T1[Ollama]
+    A4 --> T2[ChromaDB]
+    A4 --> T5[OCR / Vision]
+    A1 --> T1
+    A2 --> T1
+    A4 --> T1
+    T1 --> A[Answer]
+    T2 --> A
+    T3 --> A
+    T4 --> A
+    T5 --> A

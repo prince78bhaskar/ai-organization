@@ -1,0 +1,25 @@
+flowchart LR
+    UP[Uploaded File]
+    TYPE{File Type}
+    TXT[Read text / Markdown]
+    PDF[Extract PDF text]
+    OCR[Render low-text page / OCR]
+    CHUNK[800-character chunk / 120 overlap]
+    EMBED[Create bge-m3 embeddings]
+    D2[(ChromaDB docs)]
+    Q[Question]
+    EV[Embed question]
+    QUERY[Top-K cosine query]
+    SRC[Top 4 source chunks]
+
+    UP --> TYPE
+    TYPE --> TXT
+    TYPE --> PDF
+    PDF --> OCR
+    TXT --> CHUNK
+    PDF --> CHUNK
+    OCR --> CHUNK
+    CHUNK --> EMBED --> D2
+    Q --> EV --> QUERY
+    QUERY --> D2
+    D2 --> SRC

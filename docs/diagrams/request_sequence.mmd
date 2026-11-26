@@ -1,0 +1,27 @@
+sequenceDiagram
+    actor User
+    participant UI as Next.js UI
+    participant API as FastAPI
+    participant OR as Master Orchestrator
+    participant AG as Specialist Agent
+    participant OL as Ollama
+    participant DB as ChromaDB
+    participant ST as Chat JSON
+
+    User->>UI: Submit task
+    UI->>API: POST /api/chats/{id}/message
+    API->>ST: Load recent history
+    API->>ST: Append user message
+    API->>OR: handle(task, history)
+    OR->>OL: Route task
+    OL-->>OR: Agent list and plan
+    loop Selected agents
+        OR->>AG: Execute task with context
+        AG->>OL: Generate / embed / OCR
+        AG->>DB: Retrieve or upsert documents
+        AG-->>OR: Agent output
+    end
+    OR-->>API: Final answer and steps
+    API->>ST: Append assistant message
+    API-->>UI: SSE events
+    UI-->>User: Render answer and sources

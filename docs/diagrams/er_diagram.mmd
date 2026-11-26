@@ -1,0 +1,38 @@
+erDiagram
+    CHAT ||--o{ MESSAGE : contains
+    CHAT {
+        string id PK
+        string title
+        datetime created_at
+        datetime updated_at
+    }
+    MESSAGE {
+        string role
+        string content
+        string[] agents_used
+        object[] steps
+        object[] sources
+        object[] events
+        datetime timestamp
+    }
+    DOCUMENT ||--o{ CHUNK : contains
+    DOCUMENT {
+        string file PK
+        string name
+        integer pages
+        integer chunks
+        datetime uploaded_at
+    }
+    CHUNK {
+        string chunk_id PK
+        string document_file FK
+        string page
+        string text
+        float embedding
+    }
+    UPLOAD {
+        string stored_name PK
+        string display_name
+        integer size
+    }
+    DOCUMENT ||--o| UPLOAD : original

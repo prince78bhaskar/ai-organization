@@ -1,0 +1,18 @@
+flowchart LR
+    USER[User]
+    WEB[DuckDuckGo]
+    OLLAMA[Ollama]
+    D1[(D1 Chat JSON Files)]
+    D2[(D2 ChromaDB)]
+    D3[(D3 Uploaded Files)]
+    P0[AI Organization System]
+
+    USER -->|Task, chat, upload| P0
+    P0 -->|Answer, sources, status| USER
+    P0 -->|Search| WEB
+    WEB -->|Search results / pages| P0
+    P0 -->|Prompts / embeddings| OLLAMA
+    OLLAMA -->|Responses / vectors| P0
+    P0 -->|Read / write chat| D1
+    P0 -->|Read / write chunks| D2
+    P0 -->|Read / write files| D3

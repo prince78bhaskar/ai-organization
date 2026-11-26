@@ -1,0 +1,29 @@
+flowchart LR
+    USER[User]
+    D1[(D1 Chats)]
+    D2[(D2 Vector DB)]
+    D3[(D3 Uploads)]
+    WEB[Web / DuckDuckGo]
+    OLLAMA[Ollama]
+
+    P1[1. Task Intake]
+    P2[2. Orchestration / Routing]
+    P3[3. Document Ingestion]
+    P4[4. Retrieval]
+    P5[5. Agent Execution]
+    P6[6. Response Assembly]
+    P7[7. Chat Storage]
+
+    USER --> P1 --> P2
+    P2 --> P5
+    P5 --> P6 --> P7 --> D1
+    D1 --> P1
+    USER --> P3 --> D3
+    P3 --> D2
+    P2 --> P4 --> D2
+    D2 --> P4 --> P5
+    P5 --> OLLAMA
+    P5 --> WEB
+    OLLAMA --> P5
+    WEB --> P5
+    P6 --> USER

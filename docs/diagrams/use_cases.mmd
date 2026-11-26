@@ -1,0 +1,29 @@
+flowchart LR
+    USER((User))
+    ORCH((Master Orchestrator))
+    AGENTS((Specialist Agents))
+    OLLAMA((Ollama))
+    CHROMA((ChromaDB))
+    WEB((DuckDuckGo Web))
+
+    UC1([Submit Task])
+    UC2([Auto-route Task])
+    UC3([Run Agent Pipeline])
+    UC4([Write / Debug / Test Code])
+    UC5([Research a Topic])
+    UC6([Create Study Material])
+    UC7([Upload a Document])
+    UC8([Ask from Documents])
+    UC9([View Sources])
+    UC10([Manage Chat History])
+    UC11([Check System Status])
+
+    USER --> UC1 --> ORCH
+    ORCH --> UC2 --> AGENTS --> UC3
+    UC3 --> UC4 & UC5 & UC6 & UC7 & UC8
+    UC4 --> OLLAMA
+    UC5 --> WEB
+    UC6 --> OLLAMA
+    UC7 --> CHROMA
+    UC8 --> CHROMA & OLLAMA --> UC9
+    USER --> UC10 & UC11
